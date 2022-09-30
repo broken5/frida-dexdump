@@ -4,6 +4,8 @@
 __version__ = "2.0.1"
 
 import argparse
+import binascii
+import struct
 import hashlib
 import logging
 import os.path
@@ -99,9 +101,10 @@ class DexDumpApplication(ConsoleApplication):
                     continue
                 self.mds.add(md)
                 bs = fix_header(bs)
+                new_bs = fix_checksum(bs)
                 out_path = os.path.join(self.output, "classes{}.dex".format('%d' % idx if idx != 1 else ''))
                 with open(out_path, 'wb') as out:
-                    out.write(bs)
+                    out.write(new_bs)
                 logger.info("[+] DexMd5={}, SavePath={}, DexSize={}"
                             .format(md, out_path, hex(dex['size'])))
                 idx += 1
@@ -118,6 +121,50 @@ class DexDumpApplication(ConsoleApplication):
             return "dexdump.unnamed.{}".format(pid)
         except:
             return "dexdump.unnamed"
+
+
+def CalculationVar(src_byte, vara, varb):
+    varA = vara
+    varB = varb
+    icount = 0
+    listAB = []
+    while icount < len(src_byte):
+        varA = (varA + src_byte[icount]) % 65521
+        varB = (varB + varA) % 65521
+        icount += 1
+
+    listAB.append(varA)
+    listAB.append(varB)
+
+    return listAB
+
+
+def getCheckSum(varA,varB):
+    Output = (varB << 16) + varA
+    return Output
+
+
+def fix_checksum(bs):
+    VarA = 1
+    VarB = 0
+    srcBytes = []
+
+    for i in bs[12:]:
+        if type(i) == int:
+            srcBytes.append(i)
+        if type(i) == str:
+            ch = binascii.b2a_hex(i).decode()
+            ch = int(ch, 16)
+            srcBytes.append(ch)
+    varList = CalculationVar(srcBytes, VarA, VarB)
+    VarA = varList[0]
+    VarB = varList[1]
+    CheckSum = getCheckSum(VarA, VarB)
+    dex_header = binascii.unhexlify('6465780A30333500')
+    bytes_checksum = struct.pack("<Q", CheckSum)[:4]
+    print(hex(CheckSum))
+    fixed_dex_bytes = dex_header + bytes_checksum + bytearray(srcBytes)
+    return fixed_dex_bytes
 
 
 def fix_header(dex_bytes):
